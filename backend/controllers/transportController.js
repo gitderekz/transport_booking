@@ -13,7 +13,9 @@ module.exports = {
       }
       
       const [transports] = await pool.execute(query, params);
-      res.json(transports);
+      console.log('Transport: ',transports);
+      res.json({ success: true, data: transports });
+
     } catch (error) {
       console.error('Error fetching transports:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -65,7 +67,7 @@ module.exports = {
         route.stops = stops;
       }
       
-      res.json(routes);
+      res.json({ success: true, data: routes });
     } catch (error) {
       console.error('Error fetching routes:', error);
       res.status(500).json({ error: 'Internal server error' });

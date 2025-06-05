@@ -67,7 +67,7 @@ module.exports = {
   login: async (req, res) => {
     try {
       const { email, phone, password } = req.body;
-      
+      console.log("email, phone, password ",email, phone, password );
       // Validate input
       if (!email && !phone) {
         return res.status(400).json({ error: 'Email or phone is required' });
@@ -76,7 +76,7 @@ module.exports = {
       // Find user
       const [users] = await pool.execute(
         'SELECT * FROM users WHERE email = ? OR phone = ?',
-        [email, phone]
+        [email ?? null, phone ?? null]
       );
       
       if (users.length === 0) {
@@ -84,7 +84,7 @@ module.exports = {
       }
 
       const user = users[0];
-
+	
       // Check password
       const isMatch = await bcrypt.compare(password, user.password_hash);
       if (!isMatch) {
@@ -108,8 +108,15 @@ module.exports = {
       );
 
       // Omit sensitive data from response
-      const { password_hash, verification_token, ...userData } = user;
+      const { password_hash, verification_token, ...rest } = user;
 
+     // Normalize boolean field
+     const userData = {
+       ...rest,
+       is_verified: Boolean(user.is_verified)
+     };
+
+      console.log('USER: ',userData);
       res.json({
         message: 'Login successful',
         user: userData,

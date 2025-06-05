@@ -7,9 +7,11 @@ module.exports = {
     try {
       await connection.beginTransaction();
       
-      const { userId } = req.user;
+      const { id } = req.user;
+let userId = id;
+console.log('USER-ID',userId);
       const { routeId, transportId, pickupStopId, dropoffStopId, seats } = req.body;
-      
+      console.log('REQ: ', routeId, transportId, pickupStopId, dropoffStopId, seats);
       // Validate route and stops
       const [route] = await connection.execute(
         `SELECT r.*, t.type, t.name as transport_name, t.total_seats, t.seat_layout
@@ -43,16 +45,36 @@ module.exports = {
         return res.status(400).json({ error: 'Pickup must be before dropoff' });
       }
       
-      // Validate seats
-      const seatNumbers = seats.map(s => s.seatNumber);
-      const [existingBookings] = await connection.execute(
-        `SELECT bs.seat_number 
-         FROM booked_seats bs
-         JOIN bookings b ON bs.booking_id = b.id
-         WHERE b.route_id = ? AND b.status IN ('confirmed', 'pending')
-         AND bs.seat_number IN (?)`,
-        [routeId, seatNumbers]
-      );
+      //// Validate seats
+      //const seatNumbers = seats.map(s => s.seatNumber);
+      //const [existingBookings] = await connection.execute(
+      //  `SELECT bs.seat_number 
+      //   FROM booked_seats bs
+      //   JOIN bookings b ON bs.booking_id = b.id
+      //   WHERE b.route_id = ? AND b.status IN ('confirmed', 'pending')
+      //   AND bs.seat_number IN (?)`,
+      //  [routeId, seatNumbers]
+      //);
+const seatNumbers = seats.map(s => s.seat_number);
+
+// Guard: prevent empty list crash
+if (!seatNumbers.length) {
+  await connection.rollback();
+  return res.status(400).json({ error: 'No seats provided' });
+}
+
+// Dynamically build placeholders
+const seatPlaceholders = seatNumbers.map(() => '?').join(', ');
+
+const [existingBookings] = await connection.execute(
+  `SELECT bs.seat_number 
+   FROM booked_seats bs
+   JOIN bookings b ON bs.booking_id = b.id
+   WHERE b.route_id = ? AND b.status IN ('confirmed', 'pending')
+   AND bs.seat_number IN (${seatPlaceholders})`,
+  [routeId, ...seatNumbers] // ✅ spread seat numbers
+);
+
       
       if (existingBookings.length > 0) {
         await connection.rollback();
@@ -68,6 +90,7 @@ module.exports = {
       
       // Create booking
       const bookingRef = generateBookingReference();
+console.log('bookingRef, userId, routeId, transportId, pickupStopId, dropoffStopId, totalPrice', bookingRef, userId, routeId, transportId, pickupStopId, dropoffStopId, totalPrice);
       const [bookingResult] = await connection.execute(
         `INSERT INTO bookings (
           booking_reference, user_id, route_id, transport_id, 
@@ -78,15 +101,34 @@ module.exports = {
       
       const bookingId = bookingResult.insertId;
       
-      // Book seats
-      for (const seat of seats) {
-        await connection.execute(
-          `INSERT INTO booked_seats (
-            booking_id, seat_number, passenger_name, passenger_age, passenger_gender
-          ) VALUES (?, ?, ?, ?, ?)`,
-          [bookingId, seat.seatNumber, seat.passengerName, seat.passengerAge, seat.passengerGender]
-        );
-      }
+      //// Book seats
+      //for (const seat of seats) {
+      //  await connection.execute(
+      //    `INSERT INTO booked_seats (
+      //      booking_id, seat_number, passenger_name, passenger_age, passenger_gender
+      //    ) VALUES (?, ?, ?, ?, ?)`,
+      //    [bookingId, seat.seatNumber, seat.passengerName, seat.passengerAge, seat.passengerGender]
+      //  );
+      //}
+for (const seat of seats) {
+  const seatNumber = seat.seat_number ?? null;
+  const passengerName = seat.passenger_name ?? null;
+  const passengerAge = seat.passenger_age ?? null;
+  const passengerGender = seat.passenger_gender ?? null;
+
+  if (!seatNumber || !passengerName) {
+    await connection.rollback();
+    return res.status(400).json({ error: 'Missing seat number or passenger name' });
+  }
+
+  await connection.execute(
+    `INSERT INTO booked_seats (
+      booking_id, seat_number, passenger_name, passenger_age, passenger_gender
+    ) VALUES (?, ?, ?, ?, ?)`,
+    [bookingId, seatNumber, passengerName, passengerAge, passengerGender]
+  );
+}
+
       
       await connection.commit();
       
