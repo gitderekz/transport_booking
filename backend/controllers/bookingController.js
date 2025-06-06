@@ -7,8 +7,8 @@ module.exports = {
     try {
       await connection.beginTransaction();
       
-      const { id } = req.user;
-let userId = id;
+      const { userId } = req.user;
+
 console.log('USER-ID',userId);
       const { routeId, transportId, pickupStopId, dropoffStopId, seats } = req.body;
       console.log('REQ: ', routeId, transportId, pickupStopId, dropoffStopId, seats);
@@ -190,8 +190,8 @@ for (const seat of seats) {
         );
         booking.seats = seats;
       }
-      
-      res.json(bookings);
+      console.log('bookings',bookings);
+      res.json({ data: bookings });
     } catch (error) {
       console.error('Error fetching user bookings:', error);
       res.status(500).json({ error: 'Internal server error' });

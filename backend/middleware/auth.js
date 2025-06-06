@@ -22,7 +22,11 @@ module.exports = {
         return res.status(401).json({ error: 'User not found' });
       }
       
-      req.user = users[0];
+      //req.user = users[0];
+req.user = {
+  userId: users[0].id,
+  ...users[0],
+};
       req.db = req.db; // Attach db to request
       next();
     } catch (error) {
