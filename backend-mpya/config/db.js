@@ -16,17 +16,17 @@ const sequelize = new Sequelize(
       idle: 10000,
       // evict: 1000 // Add this for production
     },
-    define: {
-      timestamps: true,
-      underscored: true,
-      createdAt: 'created_at',
-      updatedAt: 'updated_at',
-      freezeTableName: true
-    },
-    dialectOptions: {
-      charset: 'utf8mb4',
-      collate: 'utf8mb4_unicode_ci'
-    }
+    // define: {
+    //   timestamps: true,
+    //   underscored: true,
+    //   createdAt: 'created_at',
+    //   updatedAt: 'updated_at',
+    //   freezeTableName: true
+    // },
+    // dialectOptions: {
+    //   charset: 'utf8mb4',
+    //   collate: 'utf8mb4_unicode_ci'
+    // }
   }
 );
 

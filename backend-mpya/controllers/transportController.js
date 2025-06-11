@@ -11,6 +11,7 @@ module.exports = {
       }
       
       const transports = await Transport.findAll({ where });
+      console.log("Transport: ",transports);
       
       res.json({ success: true, data: transports });
     } catch (error) {
@@ -20,6 +21,8 @@ module.exports = {
   },
 
   getTransportById: async (req, res) => {
+    console.log("NI HAPA: /api/transports?");
+    
     try {
       const { id } = req.params;
       

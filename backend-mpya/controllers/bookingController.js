@@ -1,5 +1,28 @@
-const { Booking, Route, Transport, Stop, BookedSeat , sequelize, Sequelize, Op } = require('../models');
+const { Booking, Route, Transport, Stop, BookedSeat, sequelize, Sequelize, Op } = require('../models');
 const { generateBookingReference } = require('../utils/helpers');
+
+// Helper function to flatten booking response
+const flattenBookingResponse = (booking) => {
+  if (!booking) return null;
+  
+  return {
+    ...booking,
+    origin: booking.route?.origin,
+    destination: booking.route?.destination,
+    base_price: booking.route?.base_price,
+    transport_type: booking.transport?.type,
+    transport_name: booking.transport?.name,
+    pickup_station_name: booking.pickup_stop?.station_name,
+    pickup_time: booking.pickup_stop?.departure_time,
+    dropoff_station_name: booking.dropoff_stop?.station_name,
+    dropoff_time: booking.dropoff_stop?.arrival_time,
+    // // Remove nested objects to match original structure
+    // route: undefined,
+    // transport: undefined,
+    // pickup_stop: undefined,
+    // dropoff_stop: undefined
+  };
+};
 
 module.exports = {
   createBooking: async (req, res) => {
@@ -12,29 +35,29 @@ module.exports = {
       const route = await Route.findOne({
         where: { id: routeId, transport_id: transportId },
         include: [
-          { model: Transport, as: 'transport' },
-          { model: Stop, as: 'stops' }
+          { model: Transport, as: 'transport', attributes: ['type', 'name', 'total_seats', 'seat_layout'] },
+          { model: Stop, as: 'stops', attributes: ['id', 'sequence_order'] }
         ],
         transaction: t
       });
       
       if (!route) {
         await t.rollback();
-        return res.status(404).json({ error: 'Route not found' });
+        return res.status(404).json({ success: false, error: 'Route not found' });
       }
       
       // Validate stops belong to the route
       const stops = await Stop.findAll({
         where: { 
           route_id: routeId,
-          id: [pickupStopId, dropoffStopId]
+          id: { [Op.in]: [pickupStopId, dropoffStopId] }
         },
         transaction: t
       });
       
       if (stops.length !== 2) {
         await t.rollback();
-        return res.status(400).json({ error: 'Invalid pickup or dropoff stop' });
+        return res.status(400).json({ success: false, error: 'Invalid pickup or dropoff stop' });
       }
       
       const pickupStop = stops.find(s => s.id == pickupStopId);
@@ -42,7 +65,7 @@ module.exports = {
       
       if (pickupStop.sequence_order >= dropoffStop.sequence_order) {
         await t.rollback();
-        return res.status(400).json({ error: 'Pickup must be before dropoff' });
+        return res.status(400).json({ success: false, error: 'Pickup must be before dropoff' });
       }
       
       // Validate seats
@@ -50,26 +73,29 @@ module.exports = {
       
       if (!seatNumbers.length) {
         await t.rollback();
-        return res.status(400).json({ error: 'No seats provided' });
+        return res.status(400).json({ success: false, error: 'No seats provided' });
       }
 
       const existingBookings = await BookedSeat.findAll({
+        attributes: ['seat_number'],
         where: {
-          seat_number: seatNumbers,
+          seat_number: { [Op.in]: seatNumbers },
           '$booking.route_id$': routeId,
-          '$booking.status$': ['confirmed', 'pending']
+          '$booking.status$': { [Op.in]: ['confirmed', 'pending'] }
         },
         include: [{
           model: Booking,
           as: 'booking',
           attributes: []
         }],
-        transaction: t
+        transaction: t,
+        raw: true
       });
       
       if (existingBookings.length > 0) {
         await t.rollback();
         return res.status(409).json({ 
+          success: false,
           error: 'Some seats are already booked',
           bookedSeats: existingBookings.map(b => b.seat_number)
         });
@@ -86,9 +112,11 @@ module.exports = {
         transport_id: transportId,
         pickup_stop_id: pickupStopId,
         dropoff_stop_id: dropoffStopId,
-        payment_method,
-        notes,
-        total_price: totalPrice
+        payment_method: payment_method || 'mpesa',
+        notes: notes || 'Payment',
+        total_price: totalPrice,
+        status: 'pending',
+        payment_status: 'unpaid'
       }, { transaction: t });
       
       // Book seats
@@ -103,61 +131,13 @@ module.exports = {
         { transaction: t }
       );
       
-      await t.commit();
-      
       // Get full booking details with associations
       const fullBooking = await Booking.findByPk(booking.id, {
-        include: [
-          { model: Route, as: 'route' },
-          { model: Transport, as: 'transport' },
-          { 
-            model: Stop, 
-            as: 'pickup_stop',
-            attributes: ['id', 'station_name', 'departure_time']
-          },
-          { 
-            model: Stop, 
-            as: 'dropoff_stop',
-            attributes: ['id', 'station_name', 'arrival_time']
-          },
-          { model: BookedSeat, as: 'seats' },
-          {
-            model: Route,
-            as: 'route',
-            include: [{
-              model: Stop,
-              as: 'stops',
-              attributes: ['id', 'station_name', 'sequence_order', 'arrival_time', 'departure_time'],
-              order: [['sequence_order', 'ASC']]
-            }]
-          }
-        ],
-        transaction: t
-      });
-
-      res.status(201).json({
-        message: 'Booking created successfully',
-        booking: fullBooking,
-        seatsBooked: seats.length
-      });
-    } catch (error) {
-      await t.rollback();
-      console.error('Booking error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  },
-
-  getUserBookings: async (req, res) => {
-    try {
-      const { userId } = req.user;
-      
-      const bookings = await Booking.findAll({
-        where: { user_id: userId },
         include: [
           { 
             model: Route, 
             as: 'route',
-            attributes: ['origin', 'destination', 'base_price', 'duration_minutes']
+            attributes: ['origin', 'destination', 'base_price']
           },
           { 
             model: Transport, 
@@ -180,13 +160,76 @@ module.exports = {
             attributes: ['seat_number', 'passenger_name', 'passenger_age', 'passenger_gender']
           }
         ],
-        order: [['created_at', 'DESC']]
+        transaction: t,
+        raw: true,
+        nest: true
+      });
+
+      await t.commit();
+      
+      const flattenedBooking = flattenBookingResponse(fullBooking);
+      
+      res.status(201).json({
+        success: true,
+        message: 'Booking created successfully',
+        booking: flattenedBooking,
+        seatsBooked: seats.length
+      });
+    } catch (error) {
+      await t.rollback();
+      console.error('Booking error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+  },
+
+  getUserBookings: async (req, res) => {
+    try {
+      const { userId } = req.user;
+      
+      const bookings = await Booking.findAll({
+        where: { user_id: userId },
+        include: [
+          { 
+            model: Route, 
+            as: 'route',
+            attributes: ['origin', 'destination', 'base_price']
+          },
+          { 
+            model: Transport, 
+            as: 'transport',
+            attributes: ['type', 'name']
+          },
+          { 
+            model: Stop, 
+            as: 'pickup_stop',
+            attributes: ['station_name', 'departure_time']
+          },
+          { 
+            model: Stop, 
+            as: 'dropoff_stop',
+            attributes: ['station_name', 'arrival_time']
+          },
+          { 
+            model: BookedSeat, 
+            as: 'seats',
+            attributes: ['seat_number', 'passenger_name', 'passenger_age', 'passenger_gender']
+          }
+        ],
+        order: [['created_at', 'DESC']],
+        raw: true,
+        nest: true
       });
       
-      res.json({ data: bookings });
+      const flattenedBookings = bookings.map(flattenBookingResponse);
+      console.log('bookings:', bookings);
+      
+      res.json({ 
+        success: true,
+        data: flattenedBookings 
+      });
     } catch (error) {
       console.error('Error fetching user bookings:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ success: false, error: 'Internal server error' });
     }
   },
 
@@ -201,7 +244,7 @@ module.exports = {
           { 
             model: Route, 
             as: 'route',
-            attributes: ['origin', 'destination', 'base_price', 'duration_minutes']
+            attributes: ['origin', 'destination', 'base_price']
           },
           { 
             model: Transport, 
@@ -223,17 +266,23 @@ module.exports = {
             as: 'seats',
             attributes: ['seat_number', 'passenger_name', 'passenger_age', 'passenger_gender']
           }
-        ]
+        ],
+        raw: true,
+        nest: true
       });
       
       if (!booking) {
-        return res.status(404).json({ error: 'Booking not found' });
+        return res.status(404).json({ success: false, error: 'Booking not found' });
       }
       
-      res.json(booking);
+      const flattenedBooking = flattenBookingResponse(booking);
+      res.json({ 
+        success: true,
+        data: flattenedBooking 
+      });
     } catch (error) {
       console.error('Error fetching booking details:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ success: false, error: 'Internal server error' });
     }
   },
 
@@ -243,7 +292,6 @@ module.exports = {
       const { id } = req.params;
       const { userId } = req.user;
 
-      // Check if booking belongs to user and update status
       const [updated] = await Booking.update(
         { status: 'cancelled' },
         { 
@@ -254,18 +302,294 @@ module.exports = {
 
       if (updated === 0) {
         await t.rollback();
-        return res.status(404).json({ error: 'Booking not found' });
+        return res.status(404).json({ success: false, error: 'Booking not found' });
       }
 
       await t.commit();
-      res.json({ message: 'Booking cancelled successfully' });
+      res.json({ 
+        success: true,
+        message: 'Booking cancelled successfully' 
+      });
     } catch (error) {
       await t.rollback();
       console.error('Error cancelling booking:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ success: false, error: 'Internal server error' });
     }
   }
 };
+
+
+
+// const { Booking, Route, Transport, Stop, BookedSeat , sequelize, Sequelize, Op } = require('../models');
+// const { generateBookingReference } = require('../utils/helpers');
+
+// module.exports = {
+//   createBooking: async (req, res) => {
+//     const t = await sequelize.transaction();
+//     try {
+//       const { userId } = req.user;
+//       const { routeId, transportId, pickupStopId, dropoffStopId, seats, payment_method, notes } = req.body;
+
+//       // Validate route and stops
+//       const route = await Route.findOne({
+//         where: { id: routeId, transport_id: transportId },
+//         include: [
+//           { model: Transport, as: 'transport' },
+//           { model: Stop, as: 'stops' }
+//         ],
+//         transaction: t
+//       });
+      
+//       if (!route) {
+//         await t.rollback();
+//         return res.status(404).json({ error: 'Route not found' });
+//       }
+      
+//       // Validate stops belong to the route
+//       const stops = await Stop.findAll({
+//         where: { 
+//           route_id: routeId,
+//           id: [pickupStopId, dropoffStopId]
+//         },
+//         transaction: t
+//       });
+      
+//       if (stops.length !== 2) {
+//         await t.rollback();
+//         return res.status(400).json({ error: 'Invalid pickup or dropoff stop' });
+//       }
+      
+//       const pickupStop = stops.find(s => s.id == pickupStopId);
+//       const dropoffStop = stops.find(s => s.id == dropoffStopId);
+      
+//       if (pickupStop.sequence_order >= dropoffStop.sequence_order) {
+//         await t.rollback();
+//         return res.status(400).json({ error: 'Pickup must be before dropoff' });
+//       }
+      
+//       // Validate seats
+//       const seatNumbers = seats.map(s => s.seat_number);
+      
+//       if (!seatNumbers.length) {
+//         await t.rollback();
+//         return res.status(400).json({ error: 'No seats provided' });
+//       }
+
+//       const existingBookings = await BookedSeat.findAll({
+//         where: {
+//           seat_number: seatNumbers,
+//           '$booking.route_id$': routeId,
+//           '$booking.status$': ['confirmed', 'pending']
+//         },
+//         include: [{
+//           model: Booking,
+//           as: 'booking',
+//           attributes: []
+//         }],
+//         transaction: t
+//       });
+      
+//       if (existingBookings.length > 0) {
+//         await t.rollback();
+//         return res.status(409).json({ 
+//           error: 'Some seats are already booked',
+//           bookedSeats: existingBookings.map(b => b.seat_number)
+//         });
+//       }
+      
+//       // Calculate price
+//       const totalPrice = route.base_price * seats.length;
+      
+//       // Create booking
+//       const booking = await Booking.create({
+//         booking_reference: generateBookingReference(),
+//         user_id: userId,
+//         route_id: routeId,
+//         transport_id: transportId,
+//         pickup_stop_id: pickupStopId,
+//         dropoff_stop_id: dropoffStopId,
+//         payment_method,
+//         notes,
+//         total_price: totalPrice
+//       }, { transaction: t });
+      
+//       // Book seats
+//       await BookedSeat.bulkCreate(
+//         seats.map(seat => ({
+//           booking_id: booking.id,
+//           seat_number: seat.seat_number,
+//           passenger_name: seat.passenger_name,
+//           passenger_age: seat.passenger_age,
+//           passenger_gender: seat.passenger_gender
+//         })),
+//         { transaction: t }
+//       );
+      
+//       await t.commit();
+      
+//       // Get full booking details with associations
+//       const fullBooking = await Booking.findByPk(booking.id, {
+//         include: [
+//           { model: Route, as: 'route' },
+//           { model: Transport, as: 'transport' },
+//           { 
+//             model: Stop, 
+//             as: 'pickup_stop',
+//             attributes: ['id', 'station_name', 'departure_time']
+//           },
+//           { 
+//             model: Stop, 
+//             as: 'dropoff_stop',
+//             attributes: ['id', 'station_name', 'arrival_time']
+//           },
+//           { model: BookedSeat, as: 'seats' },
+//           {
+//             model: Route,
+//             as: 'route',
+//             include: [{
+//               model: Stop,
+//               as: 'stops',
+//               attributes: ['id', 'station_name', 'sequence_order', 'arrival_time', 'departure_time'],
+//               order: [['sequence_order', 'ASC']]
+//             }]
+//           }
+//         ],
+//         transaction: t
+//       });
+
+//       res.status(201).json({
+//         message: 'Booking created successfully',
+//         booking: fullBooking,
+//         seatsBooked: seats.length
+//       });
+//     } catch (error) {
+//       await t.rollback();
+//       console.error('Booking error:', error);
+//       res.status(500).json({ error: 'Internal server error' });
+//     }
+//   },
+
+//   getUserBookings: async (req, res) => {
+//     try {
+//       const { userId } = req.user;
+      
+//       const bookings = await Booking.findAll({
+//         where: { user_id: userId },
+//         include: [
+//           { 
+//             model: Route, 
+//             as: 'route',
+//             attributes: ['origin', 'destination', 'base_price', 'duration_minutes']
+//           },
+//           { 
+//             model: Transport, 
+//             as: 'transport',
+//             attributes: ['type', 'name']
+//           },
+//           { 
+//             model: Stop, 
+//             as: 'pickup_stop',
+//             attributes: ['station_name', 'departure_time']
+//           },
+//           { 
+//             model: Stop, 
+//             as: 'dropoff_stop',
+//             attributes: ['station_name', 'arrival_time']
+//           },
+//           { 
+//             model: BookedSeat, 
+//             as: 'seats',
+//             attributes: ['seat_number', 'passenger_name', 'passenger_age', 'passenger_gender']
+//           }
+//         ],
+//         order: [['created_at', 'DESC']]
+//       });
+//       console.log('bookings',bookings);
+      
+//       res.json({ data: bookings });
+//     } catch (error) {
+//       console.error('Error fetching user bookings:', error);
+//       res.status(500).json({ error: 'Internal server error' });
+//     }
+//   },
+
+//   getBookingDetails: async (req, res) => {
+//     try {
+//       const { id } = req.params;
+//       const { userId } = req.user;
+      
+//       const booking = await Booking.findOne({
+//         where: { id, user_id: userId },
+//         include: [
+//           { 
+//             model: Route, 
+//             as: 'route',
+//             attributes: ['origin', 'destination', 'base_price', 'duration_minutes']
+//           },
+//           { 
+//             model: Transport, 
+//             as: 'transport',
+//             attributes: ['type', 'name']
+//           },
+//           { 
+//             model: Stop, 
+//             as: 'pickup_stop',
+//             attributes: ['station_name', 'departure_time']
+//           },
+//           { 
+//             model: Stop, 
+//             as: 'dropoff_stop',
+//             attributes: ['station_name', 'arrival_time']
+//           },
+//           { 
+//             model: BookedSeat, 
+//             as: 'seats',
+//             attributes: ['seat_number', 'passenger_name', 'passenger_age', 'passenger_gender']
+//           }
+//         ]
+//       });
+      
+//       if (!booking) {
+//         return res.status(404).json({ error: 'Booking not found' });
+//       }
+      
+//       res.json(booking);
+//     } catch (error) {
+//       console.error('Error fetching booking details:', error);
+//       res.status(500).json({ error: 'Internal server error' });
+//     }
+//   },
+
+//   cancelBooking: async (req, res) => {
+//     const t = await sequelize.transaction();
+//     try {
+//       const { id } = req.params;
+//       const { userId } = req.user;
+
+//       // Check if booking belongs to user and update status
+//       const [updated] = await Booking.update(
+//         { status: 'cancelled' },
+//         { 
+//           where: { id, user_id: userId },
+//           transaction: t
+//         }
+//       );
+
+//       if (updated === 0) {
+//         await t.rollback();
+//         return res.status(404).json({ error: 'Booking not found' });
+//       }
+
+//       await t.commit();
+//       res.json({ message: 'Booking cancelled successfully' });
+//     } catch (error) {
+//       await t.rollback();
+//       console.error('Error cancelling booking:', error);
+//       res.status(500).json({ error: 'Internal server error' });
+//     }
+//   }
+// };
+// // *************************
 
 
 

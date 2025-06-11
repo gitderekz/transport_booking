@@ -1,50 +1,29 @@
 const { Route, Transport, Stop, Booking, sequelize, Sequelize, Op } = require('../models');
 // const db = require('../config/db');
 module.exports = {
-  getAllRoutes : async (req, res) => {
-  try {
-    const [routes] = await sequelize.query(`
-      SELECT r.*, t.type as transport_type, t.name as transport_name
-      FROM routes r
-      JOIN transports t ON r.transport_id = t.id
-      WHERE r.active = 1
-      ORDER BY r.origin, r.destination
-    `);
-
-    // Ensure routes is always an array
-    const routesArray = Array.isArray(routes) ? routes : [routes];
-
-    console.log({ success: true, data: routesArray });
-
-    res.json({ success: true, data: routesArray });
-  } catch (error) {
-    console.error('Error fetching routes:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch routes' });
-  }
-},
-  // getAllRoutes: async (req, res) => {
-  //   try {
-  //     const routes = await Route.findAll({
-  //       where: { active: true },
-  //       include: [{
-  //         model: Transport,
-  //         as: 'transport',
-  //         // attributes: ['type', 'name']
-  //       },
-  //       {
-  //         model: Booking,
-  //         as: 'bookings',
-  //         attributes: []
-  //       }],
-  //       order: [['origin', 'ASC'], ['destination', 'ASC']]
-  //     });
-  //     console.log({ success: true, data: routes })
-  //     res.json({ success: true, data: routes });
-  //   } catch (error) {
-  //     console.error('Error fetching routes:', error);
-  //     res.status(500).json({ success: false, error: 'Failed to fetch routes' });
-  //   }
-  // },
+  getAllRoutes: async (req, res) => {
+    try {
+      const routes = await Route.findAll({
+        where: { active: true },
+        include: [{
+          model: Transport,
+          as: 'transport',
+          // attributes: ['type', 'name']
+        },
+        {
+          model: Booking,
+          as: 'bookings',
+          attributes: []
+        }],
+        order: [['origin', 'ASC'], ['destination', 'ASC']]
+      });
+      console.log({ success: true, data: routes })
+      res.json({ success: true, data: routes });
+    } catch (error) {
+      console.error('Error fetching routes:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch routes' });
+    }
+  },
 
 getPopularRoutes: async (req, res) => {
   try {
