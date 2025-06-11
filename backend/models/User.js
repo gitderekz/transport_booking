@@ -6,6 +6,8 @@ class User {
     phone,
     first_name,
     last_name,
+    gender,
+    age,
     is_verified,
     verification_token,
     language_pref,
@@ -20,6 +22,8 @@ class User {
     this.phone = phone;
     this.firstName = first_name;
     this.lastName = last_name;
+    this.gender = gender;
+    this.age = age;
     this.isVerified = is_verified;
     this.verificationToken = verification_token;
     this.languagePref = language_pref;
@@ -41,6 +45,8 @@ class User {
       phone: this.phone,
       first_name: this.firstName,
       last_name: this.lastName,
+      gender: this.gender,
+      age: this.age,
       is_verified: this.isVerified,
       verification_token: this.verificationToken,
       language_pref: this.languagePref,

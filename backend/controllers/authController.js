@@ -9,13 +9,10 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1d';
 const SALT_ROUNDS = 10;
 
 module.exports = {
-  
   register: async (req, res) => {
     try {
-      let { email, phone, password, first_name, last_name } = req.body;
-     
-      phone = phone || (Math.floor(1000000000 + Math.random() * 9000000000)).toString();
-      email = email || null;
+      const { email, phone, password, firstName, lastName, gender, age, language_pref, theme_pref } = req.body;
+      
       // Validate input
       if (!email && !phone) {
         return res.status(400).json({ error: 'Email or phone is required' });
@@ -40,8 +37,8 @@ module.exports = {
 
       // Create user
       const [result] = await pool.execute(
-        'INSERT INTO users (uuid, email, phone, password_hash, first_name, last_name, verification_token) VALUES (UUID(), ?, ?, ?, ?, ?, ?)',
-        [email, phone, hashedPassword, first_name, last_name, verificationToken]
+        'INSERT INTO users (uuid, email, phone, password_hash, first_name, last_name,gender,age,language_pref,theme_pref, verification_token) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [email, phone, hashedPassword, firstName, lastName, gender, age, language_pref, theme_pref, verificationToken]
       );
 
       // Send verification email if email exists
@@ -66,60 +63,6 @@ module.exports = {
       res.status(500).json({ error: 'Internal server error' });
     }
   },
-  // register: async (req, res) => {
-  //   try {
-  //     const { email, phone, password, firstName, lastName } = req.body;
-      
-  //     // Validate input
-  //     if (!email && !phone) {
-  //       return res.status(400).json({ error: 'Email or phone is required' });
-  //     }
-  //     if (!password || password.length < 6) {
-  //       return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  //     }
-
-  //     // Check if user exists
-  //     const [existingUser] = await pool.execute(
-  //       'SELECT id FROM users WHERE email = ? OR phone = ?',
-  //       [email, phone]
-  //     );
-      
-  //     if (existingUser.length > 0) {
-  //       return res.status(409).json({ error: 'User already exists' });
-  //     }
-
-  //     // Hash password
-  //     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-  //     const verificationToken = uuidv4();
-
-  //     // Create user
-  //     const [result] = await pool.execute(
-  //       'INSERT INTO users (uuid, email, phone, password_hash, first_name, last_name, verification_token) VALUES (UUID(), ?, ?, ?, ?, ?, ?)',
-  //       [email, phone, hashedPassword, firstName, lastName, verificationToken]
-  //     );
-
-  //     // Send verification email if email exists
-  //     if (email) {
-  //       await sendVerificationEmail(email, verificationToken);
-  //     }
-
-  //     // Generate JWT
-  //     const token = jwt.sign(
-  //       { userId: result.insertId },
-  //       JWT_SECRET,
-  //       { expiresIn: JWT_EXPIRES_IN }
-  //     );
-
-  //     res.status(201).json({
-  //       message: 'User registered successfully. Please verify your email.',
-  //       userId: result.insertId,
-  //       token
-  //     });
-  //   } catch (error) {
-  //     console.error('Registration error:', error);
-  //     res.status(500).json({ error: 'Internal server error' });
-  //   }
-  // },
 
   login: async (req, res) => {
     try {
