@@ -11,8 +11,10 @@ const SALT_ROUNDS = 10;
 module.exports = {
   register: async (req, res) => {
     try {
-      const { email, phone, password, firstName, lastName, gender, age, language_pref, theme_pref } = req.body;
+      let { email, phone, password, firstName, lastName, gender, age, language_pref, theme_pref } = req.body;
       
+      phone = phone || null;//(Math.floor(1000000000 + Math.random() * 9000000000)).toString();
+      email = email || null;
       // Validate input
       if (!email && !phone) {
         return res.status(400).json({ error: 'Email or phone is required' });
