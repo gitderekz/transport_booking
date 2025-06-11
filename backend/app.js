@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -14,6 +15,7 @@ const transportRoutes = require('./routes/transportRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const stopRoutes = require('./routes/stopRoutes');
+const routeRoutes = require('./routes/routeRoutes');
 
 const app = express();
 
@@ -56,6 +58,7 @@ app.use('/api/transports', transportRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/stops', stopRoutes);
+app.use('/api/routes', routeRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

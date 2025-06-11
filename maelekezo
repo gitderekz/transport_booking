@@ -1,0 +1,459 @@
+LETS SOLVE;   
+Error fetching popular routes: Error
+    at Query.run (C:\dev\web\transport_booking\backend\node_modules\sequelize\lib\dialects\mysql\query.js:52:25)
+    at C:\dev\web\transport_booking\backend\node_modules\sequelize\lib\sequelize.js:315:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MySQLQueryInterface.select (C:\dev\web\transport_booking\backend\node_modules\sequelize\lib\dialects\abstract\query-interface.js:407:12)
+    at async Route.findAll (C:\dev\web\transport_booking\backend\node_modules\sequelize\lib\model.js:1140:21)
+    at async getPopularRoutes (C:\dev\web\transport_booking\backend\controllers\routeController.js:25:22) {
+  name: 'SequelizeDatabaseError',
+  parent: Error: Unknown column 'bookings.id' in 'field list'
+      at Packet.asError (C:\dev\web\transport_booking\backend\node_modules\mysql2\lib\packets\packet.js:740:17)
+      at Query.execute (C:\dev\web\transport_booking\backend\node_modules\mysql2\lib\commands\command.js:29:26)
+      at Connection.handlePacket (C:\dev\web\transport_booking\backend\node_modules\mysql2\lib\base\connection.js:475:34)
+      at PacketParser.onPacket (C:\dev\web\transport_booking\backend\node_modules\mysql2\lib\base\connection.js:93:12)
+      at PacketParser.executeStart (C:\dev\web\transport_booking\backend\node_modules\mysql2\lib\packet_parser.js:75:16)
+      at Socket.<anonymous> (C:\dev\web\transport_booking\backend\node_modules\mysql2\lib\base\connection.js:100:25)
+      at Socket.emit (node:events:518:28)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+      at Readable.push (node:internal/streams/readable:390:5) {
+    code: 'ER_BAD_FIELD_ERROR',
+    errno: 1054,
+    sqlState: '42S22',
+    sqlMessage: "Unknown column 'bookings.id' in 'field list'",
+    sql: 'SELECT `Route`.*, `transport`.`id` AS `transport.id`, `transport`.`type` AS `transport.type`, `transport`.`name` AS `transport.name` FROM (SELECT `Route`.`id`, `Route`.`transport_id`, `Route`.`origin`, `Route`.`destination`, `Route`.`base_price`, `Route`.`duration_minutes`, `Route`.`active`, `Route`.`created_at`, `Route`.`updated_at`, COUNT(`bookings`.`id`) AS `booking_count` FROM `routes` AS `Route` WHERE `Route`.`active` = true GROUP BY `Route`.`id` ORDER BY booking_count DESC LIMIT 10) AS `Route` LEFT OUTER JOIN `transports` AS `transport` ON `Route`.`transport_id` = `transport`.`id` LEFT OUTER JOIN `bookings` AS `bookings` ON `Route`.`id` = `bookings`.`route_id` ORDER BY booking_count DESC;',
+    parameters: undefined
+  },                        
+
+
+Are these kind of statement ok ?   [sequelize.fn('COUNT', sequelize.col('bookings.id')), 'booking_count']
+
+
+Given 
+--->controllers/routeController.js
+const { Route, Transport, Stop, Booking, sequelize, Sequelize, Op } = require('../models');
+
+module.exports = {
+  getAllRoutes: async (req, res) => {
+    try {
+      const routes = await Route.findAll({
+        where: { active: true },
+        include: [{
+          model: Transport,
+          as: 'transport',
+          attributes: ['type', 'name']
+        }],
+        order: [['origin', 'ASC'], ['destination', 'ASC']]
+      });
+      
+      res.json({ success: true, data: routes });
+    } catch (error) {
+      console.error('Error fetching routes:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch routes' });
+    }
+  },
+
+  getPopularRoutes: async (req, res) => {
+    try {
+      const routes = await Route.findAll({
+        where: { active: true },
+        attributes: {
+          include: [
+            [sequelize.fn('COUNT', sequelize.col('bookings.id')), 'booking_count']
+          ]
+        },
+        include: [
+          {
+            model: Transport,
+            as: 'transport',
+            attributes: ['type', 'name']
+          },
+          {
+            model: Booking,
+            as: 'bookings',
+            attributes: []
+          }
+        ],
+        group: ['Route.id'],
+        order: [[sequelize.literal('booking_count'), 'DESC']],
+        limit: 10
+      });
+      
+      res.json({ success: true, data: routes });
+    } catch (error) {
+      console.error('Error fetching popular routes:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch popular routes' });
+    }
+  },
+
+  searchRoutes: async (req, res) => {
+    try {
+      const { from, to, date, transportType } = req.query;
+      
+      const where = { active: true };
+      const include = [{
+        model: Transport,
+        as: 'transport',
+        attributes: ['type', 'name']
+      }];
+      
+      if (from) {
+        where.origin = { [Op.like]: `%${from}%` };
+      }
+      
+      if (to) {
+        where.destination = { [Op.like]: `%${to}%` };
+      }
+      
+      if (transportType) {
+        include[0].where = { type: transportType };
+      }
+      
+      // Add date filtering logic if needed
+      // This would depend on your schedule implementation
+      
+      const routes = await Route.findAll({
+        where,
+        include,
+        order: [['base_price', 'ASC']]
+      });
+      
+      res.json({ success: true, data: routes });
+    } catch (error) {
+      console.error('Error searching routes:', error);
+      res.status(500).json({ success: false, error: 'Failed to search routes' });
+    }
+  },
+
+  getRoutesByTransport: async (req, res) => {
+    try {
+      const { transportId } = req.params;
+      
+      const routes = await Route.findAll({
+        where: { transport_id: transportId, active: true },
+        include: [{
+          model: Transport,
+          as: 'transport',
+          attributes: ['type', 'name']
+        }],
+        order: [['origin', 'ASC'], ['destination', 'ASC']]
+      });
+      
+      res.json({ success: true, data: routes });
+    } catch (error) {
+      console.error('Error fetching routes by transport:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch routes' });
+    }
+  },
+
+  getRouteById: async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const route = await Route.findByPk(id, {
+        include: [{
+          model: Transport,
+          as: 'transport',
+          attributes: ['type', 'name']
+        }]
+      });
+      
+      if (!route) {
+        return res.status(404).json({ success: false, error: 'Route not found' });
+      }
+      
+      res.json({ success: true, data: route });
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch route' });
+    }
+  },
+
+  getRouteStops: async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const stops = await Stop.findAll({
+        where: { route_id: id },
+        order: [['sequence_order', 'ASC']]
+      });
+      
+      res.json({ success: true, data: stops });
+    } catch (error) {
+      console.error('Error fetching route stops:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch stops' });
+    }
+  },
+
+  createRoute: async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+      const { transport_id, origin, destination, base_price, duration_minutes } = req.body;
+      
+      // Validate input
+      if (!transport_id || !origin || !destination || !base_price) {
+        await t.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Missing required fields' 
+        });
+      }
+      
+      const route = await Route.create({
+        transport_id,
+        origin,
+        destination,
+        base_price,
+        duration_minutes
+      }, { transaction: t });
+      
+      // Get the newly created route with transport info
+      const fullRoute = await Route.findByPk(route.id, {
+        include: [{
+          model: Transport,
+          as: 'transport',
+          attributes: ['type', 'name']
+        }],
+        transaction: t
+      });
+      
+      await t.commit();
+      res.status(201).json({ 
+        success: true, 
+        data: fullRoute 
+      });
+    } catch (error) {
+      await t.rollback();
+      console.error('Error creating route:', error);
+      res.status(500).json({ success: false, error: 'Failed to create route' });
+    }
+  },
+
+  updateRoute: async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+      const { id } = req.params;
+      const { transport_id, origin, destination, base_price, duration_minutes, active } = req.body;
+      
+      const [updated] = await Route.update({
+        transport_id,
+        origin,
+        destination,
+        base_price,
+        duration_minutes,
+        active
+      }, {
+        where: { id },
+        transaction: t
+      });
+      
+      if (updated === 0) {
+        await t.rollback();
+        return res.status(404).json({ success: false, error: 'Route not found' });
+      }
+      
+      // Get the updated route
+      const route = await Route.findByPk(id, {
+        include: [{
+          model: Transport,
+          as: 'transport',
+          attributes: ['type', 'name']
+        }],
+        transaction: t
+      });
+      
+      await t.commit();
+      res.json({ 
+        success: true, 
+        data: route 
+      });
+    } catch (error) {
+      await t.rollback();
+      console.error('Error updating route:', error);
+      res.status(500).json({ success: false, error: 'Failed to update route' });
+    }
+  },
+
+  deleteRoute: async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+      const { id } = req.params;
+      
+      const [updated] = await Route.update(
+        { active: false },
+        { 
+          where: { id },
+          transaction: t
+        }
+      );
+      
+      if (updated === 0) {
+        await t.rollback();
+        return res.status(404).json({ success: false, error: 'Route not found' });
+      }
+      
+      await t.commit();
+      res.json({ 
+        success: true, 
+        message: 'Route deactivated successfully' 
+      });
+    } catch (error) {
+      await t.rollback();
+      console.error('Error deleting route:', error);
+      res.status(500).json({ success: false, error: 'Failed to delete route' });
+    }
+  }
+};
+
+
+--->models/routeModels.js
+module.exports = (sequelize, DataTypes) => {
+  const Route = sequelize.define('Route', {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    transport_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'transports',
+        key: 'id'
+      }
+    },
+    origin: {
+      type: DataTypes.STRING(100),
+      allowNull: false
+    },
+    destination: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+      validate: {
+        notEqual(value) {
+          if (value === this.origin) {
+            throw new Error('Origin and destination cannot be the same');
+          }
+        }
+      }
+    },
+    base_price: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      validate: {
+        min: 0
+      }
+    },
+    duration_minutes: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      validate: {
+        min: 1
+      }
+    },
+    active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true
+    }
+  }, {
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    tableName: 'routes',
+    underscored: true
+  });
+
+  Route.associate = (models) => {
+    Route.belongsTo(models.Transport, {
+      foreignKey: 'transport_id',
+      as: 'transport'
+    });
+    Route.hasMany(models.Stop, {
+      foreignKey: 'route_id',
+      as: 'stops'
+    });
+    Route.hasMany(models.Booking, {
+      foreignKey: 'route_id',
+      as: 'bookings'
+    });
+  };
+
+  return Route;
+};
+
+
+
+--->models\Booking.js
+module.exports = (sequelize, DataTypes) => {
+  const Booking = sequelize.define('Booking', {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    booking_reference: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      unique: true
+    },
+    total_price: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      validate: {
+        min: 0
+      }
+    },
+    status: {
+      type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed'),
+      defaultValue: 'pending'
+    },
+    payment_status: {
+      type: DataTypes.ENUM('unpaid', 'partial', 'paid', 'refunded'),
+      defaultValue: 'unpaid'
+    },
+    payment_method: {
+      type: DataTypes.STRING(50),
+      allowNull: true
+    },
+    notes: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    }
+  }, {
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+    tableName: 'bookings'
+  });
+
+  Booking.associate = (models) => {
+    Booking.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'user'
+    });
+    Booking.belongsTo(models.Route, {
+      foreignKey: 'route_id',
+      as: 'route'
+    });
+    Booking.belongsTo(models.Transport, {
+      foreignKey: 'transport_id',
+      as: 'transport'
+    });
+    Booking.belongsTo(models.Stop, {
+      foreignKey: 'pickup_stop_id',
+      as: 'pickup_stop'
+    });
+    Booking.belongsTo(models.Stop, {
+      foreignKey: 'dropoff_stop_id',
+      as: 'dropoff_stop'
+    });
+    Booking.hasMany(models.BookedSeat, {
+      foreignKey: 'booking_id',
+      as: 'seats'
+    });
+  };
+
+  return Booking;
+};
+
