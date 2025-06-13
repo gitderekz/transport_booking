@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
-const { pool } = require('../config/db');
+const { pool, execute } = require('../config/db');
 const { sendVerificationEmail } = require('../utils/emailService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -66,69 +66,145 @@ module.exports = {
     }
   },
 
-  login: async (req, res) => {
-    try {
-      const { email, phone, password } = req.body;
-      console.log("email, phone, password ",email, phone, password );
-      // Validate input
-      if (!email && !phone) {
-        return res.status(400).json({ error: 'Email or phone is required' });
-      }
+login: async (req, res) => {
+  try {
+    let { email, phone, password } = req.body;
 
-      // Find user
-      const [users] = await pool.execute(
-        'SELECT * FROM users WHERE email = ? OR phone = ?',
-        [email ?? null, phone ?? null]
-      );
-      
-      if (users.length === 0) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
+    // Normalize
+    email = email ?? null;
+    phone = phone ?? null;
 
-      const user = users[0];
-	
-      // Check password
-      const isMatch = await bcrypt.compare(password, user.password_hash);
-      if (!isMatch) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
+    console.log("email, phone, password", email, phone, password);
+    console.log("typeof email:", typeof email, "typeof phone:", typeof phone);
 
-      // Check if verified
-      if (!user.is_verified) {
-        return res.status(403).json({ 
-          error: 'Account not verified', 
-          userId: user.id,
-          verificationRequired: true 
-        });
-      }
-
-      // Generate JWT
-      const token = jwt.sign(
-        { userId: user.id },
-        JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
-      );
-
-      // Omit sensitive data from response
-      const { password_hash, verification_token, ...rest } = user;
-
-     // Normalize boolean field
-     const userData = {
-       ...rest,
-       is_verified: Boolean(user.is_verified)
-     };
-
-      console.log('USER: ',userData);
-      res.json({
-        message: 'Login successful',
-        user: userData,
-        token
-      });
-    } catch (error) {
-      console.error('Login error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+    if (!email && !phone) {
+      return res.status(400).json({ error: 'Email or phone is required' });
     }
-  },
+
+    // Build query
+    let query, values;
+    if (email) {
+      query = 'SELECT * FROM users WHERE email = ?';
+      values = [email];
+    } else {
+      query = 'SELECT * FROM users WHERE phone = ?';
+      values = [phone];
+    }
+
+    // Use safe execute function
+    const users = await execute(query, values);
+
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = users[0];
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (!user.is_verified) {
+      return res.status(403).json({
+        error: 'Account not verified',
+        userId: user.id,
+        verificationRequired: true
+      });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    const { password_hash, verification_token, ...rest } = user;
+
+    const userData = {
+      ...rest,
+      is_verified: Boolean(user.is_verified)
+    };
+
+    console.log('USER: ', userData);
+
+    res.json({
+      message: 'Login successful',
+      user: userData,
+      token
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+},
+
+  // login: async (req, res) => {
+  //   try {
+  //     let { email, phone, password } = req.body;
+  //     phone = phone ?? null;
+  //     email = email ?? null;
+  //     console.log("email, phone, password ",email, phone, password );
+  //     // Validate input
+  //     if (!email && !phone) {
+  //       return res.status(400).json({ error: 'Email or phone is required' });
+  //     }
+
+  //     // Find user
+  //     const [users] = await pool.execute(
+  //       'SELECT * FROM users WHERE email = ? OR phone = ?',
+  //       [email, phone]
+  //     );
+      
+  //     if (users.length === 0) {
+  //       return res.status(401).json({ error: 'Invalid credentials' });
+  //     }
+
+  //     const user = users[0];
+	
+  //     // Check password
+  //     const isMatch = await bcrypt.compare(password, user.password_hash);
+  //     if (!isMatch) {
+  //       return res.status(401).json({ error: 'Invalid credentials' });
+  //     }
+
+  //     // Check if verified
+  //     if (!user.is_verified) {
+  //       return res.status(403).json({ 
+  //         error: 'Account not verified', 
+  //         userId: user.id,
+  //         verificationRequired: true 
+  //       });
+  //     }
+
+  //     // Generate JWT
+  //     const token = jwt.sign(
+  //       { userId: user.id },
+  //       JWT_SECRET,
+  //       { expiresIn: JWT_EXPIRES_IN }
+  //     );
+
+  //     // Omit sensitive data from response
+  //     const { password_hash, verification_token, ...rest } = user;
+
+  //    // Normalize boolean field
+  //    const userData = {
+  //      ...rest,
+  //      is_verified: Boolean(user.is_verified)
+  //    };
+
+  //     console.log('USER: ',userData);
+  //     res.json({
+  //       message: 'Login successful',
+  //       user: userData,
+  //       token
+  //     });
+  //   } catch (error) {
+  //     console.error('Login error:', error);
+  //     res.status(500).json({ error: 'Internal server error' });
+  //   }
+  // },
 
   verifyEmail: async (req, res) => {
     try {
